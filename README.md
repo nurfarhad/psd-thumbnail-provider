@@ -50,25 +50,37 @@ Tested on real files on this machine:
 - **`D:\Business\CV\Resume.ai` (2.2 MB):** Decoded in **18.25 ms** (AI XMP Thumbnail)
 - **Windows Explorer Shell API (`IShellItemImageFactory`):** **SUCCESS in 21.32 ms** for `.psd` and **46.68 ms** for `.ai`!
 
+## 4. Building from Source
+
+To build `PsdThumbnailProvider.dll` and `psdthumb-diag.exe` directly on Windows:
+
+1. Ensure LLVM-MinGW or Clang is installed (e.g. via `winget install MartinStorsjo.LLVM-MinGW.UCRT`).
+2. Run `build.bat`:
+   ```bat
+   build.bat
+   ```
+   Both binaries will be compiled and placed into the `bin/` directory.
+
 ---
 
-## 4. Usage & Diagnostic Commands
+## 5. Usage & Diagnostic Commands
 
 Run from command line or via the provided batch files:
 
 ```bat
+# 1-Click Install & Register:
+install.bat
+
 # Check live registry & shell integration status:
 bin\psdthumb-diag.exe /status
 
 # Test Windows COM instantiation on a file:
-bin\psdthumb-diag.exe /test-com "D:\My File\test.psd" 256 "thumb.bmp"
+bin\psdthumb-diag.exe /test-com "path\to\file.psd" 256 "thumb.bmp"
 
 # Test Windows Explorer Shell engine (IShellItemImageFactory):
-bin\psdthumb-diag.exe /test-shell "D:\My File\test.psd" 256 "thumb.bmp"
-
-# Register the DLL:
-bin\psdthumb-diag.exe /register
+bin\psdthumb-diag.exe /test-shell "path\to\file.psd" 256 "thumb.bmp"
 
 # Unregister the DLL (clean removal):
-bin\psdthumb-diag.exe /unregister
+uninstall.bat
 ```
+
