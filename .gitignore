@@ -1,0 +1,39 @@
+# Build outputs
+*.obj
+*.o
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.pch
+*.idb
+*.aps
+
+# Compiled binaries (track source, not binaries)
+bin/
+*.dll
+*.exe
+
+# Test artefacts (BMP screenshots from psdthumb-diag)
+*.bmp
+
+# Visual Studio / MSVC
+.vs/
+*.vcxproj.user
+*.VC.db
+*.VC.opendb
+Debug/
+Release/
+x64/
+x86/
+ipch/
+
+# CMake / CLion
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+
+# OS junk
+Thumbs.db
+desktop.ini
+.DS_Store
