@@ -16,6 +16,17 @@
 #include <vector>
 #include <new>
 
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "oleaut32.lib")
+#pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "user32.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "uuid.lib")
+#pragma comment(lib, "crypt32.lib")
+
 namespace PsdThumbnail {
     std::atomic<LONG> g_dllRefCount(0);
 }

@@ -54,7 +54,7 @@ echo [1/2] Compiling PsdThumbnailProvider.dll (Unicode)...
     src\shellext\dllmain.cpp ^
     !RES_OBJ! ^
     -o bin\PsdThumbnailProvider.dll ^
-    -lole32 -loleaut32 -lshlwapi -lwindowscodecs -lgdi32 -luuid -lcrypt32 -static
+    -lole32 -loleaut32 -lshlwapi -lwindowscodecs -lgdi32 -luser32 -ladvapi32 -lshell32 -luuid -lcrypt32 -static
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to compile DLL!
     exit /b %errorlevel%
@@ -67,7 +67,7 @@ echo [2/2] Compiling psdthumb-diag.exe (Unicode)...
     src\core\psd_decoder.cpp ^
     src\diag\main.cpp ^
     -o bin\psdthumb-diag.exe ^
-    -lole32 -loleaut32 -lshlwapi -lwindowscodecs -lgdi32 -luuid -lcrypt32 -static
+    -lole32 -loleaut32 -lshlwapi -lwindowscodecs -lgdi32 -luser32 -ladvapi32 -lshell32 -luuid -lcrypt32 -static
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to compile diagnostic tool!
     exit /b %errorlevel%
