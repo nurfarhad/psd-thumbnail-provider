@@ -5,6 +5,7 @@
 #include <thumbcache.h>
 #include <cstdint>
 #include <vector>
+#include <string>
 
 namespace PsdThumbnail {
 
@@ -45,8 +46,15 @@ public:
         DecodeResult* pResult = nullptr
     );
 
+    // Shared XMP thumbnail extractor for PSD and AI formats (D-07)
+    static bool ExtractXmpThumbnailData(
+        const std::string& content,
+        std::vector<uint8_t>& outJpeg
+    );
+
 private:
-    static bool ReadHeader(IStream* pStream, PsdHeader& header);
+    static bool ReadHeader(IStream* pStream, PsdHeader& header, uint64_t streamSize);
+    static bool IsCompositeSupported(const PsdHeader& header);
     
     // Fast path: Resource 1036 / 1033 embedded JPEG/raw thumbnail
     static HRESULT TryEmbeddedThumbnail(
@@ -56,10 +64,12 @@ private:
         UINT maxEdge,
         HBITMAP* phBitmap,
         WTS_ALPHATYPE* pAlphaType,
-        DecodeResult* pResult
+        uint32_t* pThumbW = nullptr,
+        uint32_t* pThumbH = nullptr,
+        std::vector<uint8_t>* pOutRawJpeg = nullptr
     );
 
-    // Fast path 2: XMP packet search for embedded base64 JPEG
+    // Fast path 2: XMP Metadata embedded thumbnail (Resource 1060)
     static HRESULT TryXmpThumbnail(
         IStream* pStream,
         uint64_t resSectionOffset,
@@ -67,12 +77,14 @@ private:
         UINT maxEdge,
         HBITMAP* phBitmap,
         WTS_ALPHATYPE* pAlphaType,
-        DecodeResult* pResult
+        uint32_t* pThumbW = nullptr,
+        uint32_t* pThumbH = nullptr
     );
 
-    // AI / PDF format XMP thumbnail search
+    // AI / PDF format XMP thumbnail search with sniffing & head+tail scanning
     static HRESULT TryAiThumbnail(
         IStream* pStream,
+        uint64_t streamSize,
         UINT maxEdge,
         HBITMAP* phBitmap,
         WTS_ALPHATYPE* pAlphaType,
@@ -84,6 +96,7 @@ private:
         IStream* pStream,
         const PsdHeader& header,
         uint64_t imgDataOffset,
+        uint64_t streamSize,
         UINT maxEdge,
         HBITMAP* phBitmap,
         WTS_ALPHATYPE* pAlphaType,
@@ -96,10 +109,26 @@ private:
         size_t dataSize,
         UINT maxEdge,
         HBITMAP* phBitmap,
-        WTS_ALPHATYPE* pAlphaType
+        WTS_ALPHATYPE* pAlphaType,
+        uint32_t* pOutW = nullptr,
+        uint32_t* pOutH = nullptr
     );
 
-    // Utility: stream read helpers
+    // High-quality WIC scaler for composite bitmap down to maxEdge
+    static HRESULT ScaleBitmapToDib(
+        const uint32_t* pPixels,
+        uint32_t width,
+        uint32_t height,
+        UINT maxEdge,
+        bool hasAlpha,
+        HBITMAP* phBitmap,
+        WTS_ALPHATYPE* pAlphaType,
+        uint32_t* pOutW,
+        uint32_t* pOutH
+    );
+
+    // Utility: stream read helpers with bounds checking
+    static bool StreamGetSize(IStream* pStream, uint64_t& outSize);
     static bool StreamRead(IStream* pStream, void* buffer, ULONG bytesToRead);
     static bool StreamSeek(IStream* pStream, int64_t offset, DWORD origin, uint64_t* pNewPos = nullptr);
     static uint16_t ReadUInt16BE(const uint8_t* p);

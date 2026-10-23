@@ -9,16 +9,24 @@ echo.
 
 if not exist bin mkdir bin
 
-:: Find clang++
+:: Find clang++ and windres
 set "CLANG="
+set "WINDRES="
 where clang++.exe >nul 2>nul
 if %errorlevel% equ 0 (
     set "CLANG=clang++.exe"
+    where llvm-windres.exe >nul 2>nul && set "WINDRES=llvm-windres.exe"
+    if "!WINDRES!"=="" where windres.exe >nul 2>nul && set "WINDRES=windres.exe"
 ) else (
     for /d %%D in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\MartinStorsjo.LLVM-MinGW.UCRT*") do (
         for /d %%S in ("%%D\llvm-mingw*") do (
             if exist "%%S\bin\clang++.exe" (
                 set "CLANG=%%S\bin\clang++.exe"
+                if exist "%%S\bin\llvm-windres.exe" (
+                    set "WINDRES=%%S\bin\llvm-windres.exe"
+                ) else if exist "%%S\bin\windres.exe" (
+                    set "WINDRES=%%S\bin\windres.exe"
+                )
             )
         )
     )
@@ -32,12 +40,20 @@ if "%CLANG%"=="" (
 echo Using compiler: %CLANG%
 echo.
 
-echo [1/2] Compiling PsdThumbnailProvider.dll...
-"%CLANG%" -shared -std=c++20 -O2 ^
+set "RES_OBJ="
+if not "%WINDRES%"=="" (
+    echo Compiling version resource...
+    "%WINDRES%" -i src\shellext\version.rc -o bin\version.o
+    if %errorlevel% equ 0 set "RES_OBJ=bin\version.o"
+)
+
+echo [1/2] Compiling PsdThumbnailProvider.dll (Unicode)...
+"%CLANG%" -shared -std=c++20 -O2 -DUNICODE -D_UNICODE ^
     src\core\psd_decoder.cpp ^
     src\shellext\thumbnail_provider.cpp ^
     src\shellext\dllmain.cpp ^
     src\shellext\psd_thumb.def ^
+    !RES_OBJ! ^
     -o bin\PsdThumbnailProvider.dll ^
     -lole32 -loleaut32 -lshlwapi -lwindowscodecs -lgdi32 -luuid -lcrypt32 -static
 if %errorlevel% neq 0 (
@@ -47,8 +63,8 @@ if %errorlevel% neq 0 (
 echo      -^> bin\PsdThumbnailProvider.dll created successfully.
 
 echo.
-echo [2/2] Compiling psdthumb-diag.exe...
-"%CLANG%" -std=c++20 -O2 -municode ^
+echo [2/2] Compiling psdthumb-diag.exe (Unicode)...
+"%CLANG%" -std=c++20 -O2 -municode -DUNICODE -D_UNICODE ^
     src\core\psd_decoder.cpp ^
     src\diag\main.cpp ^
     -o bin\psdthumb-diag.exe ^
@@ -58,6 +74,8 @@ if %errorlevel% neq 0 (
     exit /b %errorlevel%
 )
 echo      -^> bin\psdthumb-diag.exe created successfully.
+
+if exist bin\version.o del bin\version.o
 
 echo.
 echo ===================================================

@@ -53,12 +53,12 @@ STDMETHODIMP_(ULONG) CPsdThumbnailProvider::Release() {
     return newCount;
 }
 
-STDMETHODIMP CPsdThumbnailProvider::Initialize(IStream* pStream, DWORD grfMode) {
+STDMETHODIMP CPsdThumbnailProvider::Initialize(IStream* pStream, DWORD /*grfMode*/) {
     if (!pStream) return E_INVALIDARG;
 
-    if (m_pStream) {
-        m_pStream->Release();
-        m_pStream = nullptr;
+    // R-08: If already initialized, return ERROR_ALREADY_INITIALIZED per IInitializeWithStream spec
+    if (m_pStream != nullptr) {
+        return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
     }
 
     m_pStream = pStream;

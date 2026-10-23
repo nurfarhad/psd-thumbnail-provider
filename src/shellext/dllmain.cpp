@@ -1,10 +1,17 @@
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+#define WIN32_LEAN_AND_MEAN
+
 #include "thumbnail_provider.h"
 #include <windows.h>
 #include <shlobj.h>
-#include <tchar.h>
 #include <string>
+#include <vector>
 #include <new>
-#include <cstdio>
 
 namespace PsdThumbnail {
     std::atomic<LONG> g_dllRefCount(0);
@@ -12,9 +19,10 @@ namespace PsdThumbnail {
 
 static HINSTANCE g_hInstance = NULL;
 
-const TCHAR g_szClsid[] = _T("{66FC65C5-2883-4D88-82AF-70626AF90EE8}");
-const TCHAR g_szThumbHandlerIid[] = _T("{e357fccd-a995-4576-b01f-234630154e96}");
-const TCHAR g_szFriendlyName[] = _T("PSD Thumbnail Provider Shell Extension");
+static const wchar_t CLSID_OUR[] = L"{66FC65C5-2883-4D88-82AF-70626AF90EE8}";
+static const wchar_t IID_THUMB[] = L"{e357fccd-a995-4576-b01f-234630154e96}";
+static const wchar_t FRIENDLY_NAME[] = L"PSD Thumbnail Provider Shell Extension";
+static const wchar_t BACKUP_BASE[] = L"Software\\PsdThumbnailProvider\\Backup";
 
 // ── IClassFactory Implementation ──────────────────────────────────────────
 class CPsdClassFactory : public IClassFactory {
@@ -71,7 +79,7 @@ private:
 };
 
 // ── DllMain ───────────────────────────────────────────────────────────────
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID /*lpReserved*/) {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         g_hInstance = hModule;
         DisableThreadLibraryCalls(hModule);
@@ -84,8 +92,7 @@ STDAPI DllCanUnloadNow(void) {
     return (PsdThumbnail::g_dllRefCount.load() == 0) ? S_OK : S_FALSE;
 }
 
-STDAPI DllGetClassObject(
-    REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
+STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
     if (!ppv) return E_POINTER;
     *ppv = nullptr;
 
@@ -99,73 +106,132 @@ STDAPI DllGetClassObject(
     return CLASS_E_CLASSNOTAVAILABLE;
 }
 
-// Helper to set registry key and value
-static LONG SetRegKey(HKEY hRoot, const TCHAR* subKey, const TCHAR* valName, const TCHAR* data) {
+// ── Registry Helpers (Wide APIs, R-01 & R-02) ──────────────────────────────
+static std::wstring GetCurrentModulePath(HMODULE hMod) {
+    std::wstring path(MAX_PATH, L'\0');
+    for (;;) {
+        DWORD n = GetModuleFileNameW(hMod, path.data(), static_cast<DWORD>(path.size()));
+        if (n == 0) return L"";
+        if (n < path.size()) {
+            path.resize(n);
+            return path;
+        }
+        path.resize(path.size() * 2);
+    }
+}
+
+static LONG ReadRegString(HKEY root, const std::wstring& subKey, const wchar_t* valName, std::wstring& outVal) {
     HKEY hKey = NULL;
-    LONG res = RegCreateKeyEx(hRoot, subKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL);
+    LONG res = RegOpenKeyExW(root, subKey.c_str(), 0, KEY_READ, &hKey);
+    if (res != ERROR_SUCCESS) return res;
+
+    wchar_t buf[1024];
+    DWORD cbData = sizeof(buf);
+    DWORD dwType = 0;
+    res = RegQueryValueExW(hKey, valName, NULL, &dwType, reinterpret_cast<BYTE*>(buf), &cbData);
+    RegCloseKey(hKey);
+
+    if (res == ERROR_SUCCESS && (dwType == REG_SZ || dwType == REG_EXPAND_SZ)) {
+        outVal = buf;
+    }
+    return res;
+}
+
+static LONG SetRegString(HKEY root, const std::wstring& subKey, const wchar_t* valName, const std::wstring& data) {
+    HKEY hKey = NULL;
+    LONG res = RegCreateKeyExW(root, subKey.c_str(), 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL);
     if (res == ERROR_SUCCESS) {
-        res = RegSetValueEx(hKey, valName, 0, REG_SZ, 
-            reinterpret_cast<const BYTE*>(data), static_cast<DWORD>((_tcslen(data) + 1) * sizeof(TCHAR)));
+        DWORD cbBytes = static_cast<DWORD>((data.length() + 1) * sizeof(wchar_t));
+        res = RegSetValueExW(hKey, valName, 0, REG_SZ, reinterpret_cast<const BYTE*>(data.c_str()), cbBytes);
         RegCloseKey(hKey);
     }
     return res;
 }
 
-static LONG DeleteRegKeyTree(HKEY hRoot, const TCHAR* subKey) {
-    return RegDeleteTree(hRoot, subKey);
+// Register key with backup of previous handler (R-02)
+static LONG RegisterShellExWithBackup(HKEY root, const std::wstring& shellExKey, const std::wstring& backupKeyName) {
+    std::wstring existing;
+    LONG readRes = ReadRegString(root, shellExKey, NULL, existing);
+
+    // If an existing handler from another product exists, back it up first
+    if (readRes == ERROR_SUCCESS && !existing.empty() && _wcsicmp(existing.c_str(), CLSID_OUR) != 0) {
+        SetRegString(root, std::wstring(BACKUP_BASE), backupKeyName.c_str(), existing);
+    }
+
+    return SetRegString(root, shellExKey, NULL, CLSID_OUR);
+}
+
+// Unregister key with restore of previous handler if backed up (R-02)
+static void UnregisterShellExWithRestore(HKEY root, const std::wstring& shellExKey, const std::wstring& backupKeyName) {
+    std::wstring current;
+    LONG readRes = ReadRegString(root, shellExKey, NULL, current);
+
+    // Only modify if the current registered handler is OURS!
+    if (readRes == ERROR_SUCCESS && _wcsicmp(current.c_str(), CLSID_OUR) == 0) {
+        std::wstring backedUp;
+        LONG backupRes = ReadRegString(root, std::wstring(BACKUP_BASE), backupKeyName.c_str(), backedUp);
+        if (backupRes == ERROR_SUCCESS && !backedUp.empty()) {
+            // Restore previous handler
+            SetRegString(root, shellExKey, NULL, backedUp);
+        } else {
+            // Delete key since it was created by us
+            RegDeleteKeyW(root, shellExKey.c_str());
+        }
+    }
 }
 
 extern "C" __declspec(dllexport) HRESULT __stdcall DllRegisterServer(void) {
-    TCHAR szDllPath[MAX_PATH];
-    if (GetModuleFileName(g_hInstance, szDllPath, MAX_PATH) == 0)
-        return HRESULT_FROM_WIN32(GetLastError());
+    std::wstring dllPath = GetCurrentModulePath(g_hInstance);
+    if (dllPath.empty()) return HRESULT_FROM_WIN32(GetLastError());
 
     // Choose target root: Try HKEY_LOCAL_MACHINE, fall back to HKEY_CURRENT_USER if access denied
     HKEY hRoot = HKEY_LOCAL_MACHINE;
-    TCHAR testKeyName[128];
-    _stprintf_s(testKeyName, _T("Software\\Classes\\CLSID\\%s"), g_szClsid);
-    HKEY hTestKey = NULL;
-    if (RegCreateKeyEx(HKEY_LOCAL_MACHINE, testKeyName, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hTestKey, NULL) != ERROR_SUCCESS) {
+    std::wstring testKey = std::wstring(L"Software\\Classes\\CLSID\\") + CLSID_OUR;
+    HKEY hTest = NULL;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, testKey.c_str(), 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hTest, NULL) != ERROR_SUCCESS) {
         hRoot = HKEY_CURRENT_USER;
     } else {
-        RegCloseKey(hTestKey);
+        RegCloseKey(hTest);
     }
 
-    TCHAR keyPath[MAX_PATH];
+    LONG firstError = ERROR_SUCCESS;
+    auto check = [&](LONG r) {
+        if (r != ERROR_SUCCESS && firstError == ERROR_SUCCESS) firstError = r;
+    };
 
     // 1. CLSID\{GUID}
-    _stprintf_s(keyPath, _T("Software\\Classes\\CLSID\\%s"), g_szClsid);
-    SetRegKey(hRoot, keyPath, NULL, g_szFriendlyName);
+    std::wstring clsidKey = std::wstring(L"Software\\Classes\\CLSID\\") + CLSID_OUR;
+    check(SetRegString(hRoot, clsidKey, NULL, FRIENDLY_NAME));
 
     // 2. CLSID\{GUID}\InprocServer32
-    _stprintf_s(keyPath, _T("Software\\Classes\\CLSID\\%s\\InprocServer32"), g_szClsid);
-    SetRegKey(hRoot, keyPath, NULL, szDllPath);
-    SetRegKey(hRoot, keyPath, _T("ThreadingModel"), _T("Apartment"));
+    std::wstring inprocKey = clsidKey + L"\\InprocServer32";
+    check(SetRegString(hRoot, inprocKey, NULL, dllPath));
+    check(SetRegString(hRoot, inprocKey, L"ThreadingModel", L"Apartment"));
 
-    // 3. Extension associations for .psd, .psb, and .ai
-    const TCHAR* exts[] = { _T(".psd"), _T(".psb"), _T(".ai") };
-    for (const TCHAR* ext : exts) {
+    // 3. Extension associations for .psd, .psb, and .ai with backup
+    const wchar_t* exts[] = { L".psd", L".psb", L".ai" };
+    for (const wchar_t* ext : exts) {
         // Software\Classes\.ext\ShellEx\{e357fccd...}
-        _stprintf_s(keyPath, _T("Software\\Classes\\%s\\ShellEx\\%s"), ext, g_szThumbHandlerIid);
-        SetRegKey(hRoot, keyPath, NULL, g_szClsid);
+        std::wstring k1 = std::wstring(L"Software\\Classes\\") + ext + L"\\ShellEx\\" + IID_THUMB;
+        std::wstring b1 = std::wstring(L"Classes_") + (ext + 1);
+        check(RegisterShellExWithBackup(hRoot, k1, b1));
 
         // Software\Classes\SystemFileAssociations\.ext\ShellEx\{e357fccd...}
-        _stprintf_s(keyPath, _T("Software\\Classes\\SystemFileAssociations\\%s\\ShellEx\\%s"), ext, g_szThumbHandlerIid);
-        SetRegKey(hRoot, keyPath, NULL, g_szClsid);
-
-        // B-10: Only set PerceivedType=Image for PSD/PSB, not .ai (PDF-based format)
-        if (_tcscmp(ext, _T(".ai")) != 0) {
-            _stprintf_s(keyPath, _T("Software\\Classes\\%s"), ext);
-            SetRegKey(hRoot, keyPath, _T("PerceivedType"), _T("Image"));
-        }
+        std::wstring k2 = std::wstring(L"Software\\Classes\\SystemFileAssociations\\") + ext + L"\\ShellEx\\" + IID_THUMB;
+        std::wstring b2 = std::wstring(L"SysAssoc_") + (ext + 1);
+        check(RegisterShellExWithBackup(hRoot, k2, b2));
     }
 
-    // 4. Approved list (HKLM or HKCU)
-    SetRegKey(hRoot, _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved"), g_szClsid, g_szFriendlyName);
+    // 4. Approved list
+    std::wstring approvedKey = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved";
+    check(SetRegString(hRoot, approvedKey, CLSID_OUR, FRIENDLY_NAME));
 
-    // Broadcast change notification
+    if (firstError != ERROR_SUCCESS) {
+        return HRESULT_FROM_WIN32(firstError);
+    }
+
+    // Broadcast shell change notification
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
-
     return S_OK;
 }
 
@@ -173,26 +239,30 @@ extern "C" __declspec(dllexport) HRESULT __stdcall DllUnregisterServer(void) {
     HKEY roots[] = { HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER };
 
     for (HKEY hRoot : roots) {
-        TCHAR keyPath[MAX_PATH];
+        // 1. Restore or clean extensions
+        const wchar_t* exts[] = { L".psd", L".psb", L".ai" };
+        for (const wchar_t* ext : exts) {
+            std::wstring k1 = std::wstring(L"Software\\Classes\\") + ext + L"\\ShellEx\\" + IID_THUMB;
+            std::wstring b1 = std::wstring(L"Classes_") + (ext + 1);
+            UnregisterShellExWithRestore(hRoot, k1, b1);
 
-        // Delete CLSID key
-        _stprintf_s(keyPath, _T("Software\\Classes\\CLSID\\%s"), g_szClsid);
-        DeleteRegKeyTree(hRoot, keyPath);
-
-        const TCHAR* exts[] = { _T(".psd"), _T(".psb"), _T(".ai") };
-        for (const TCHAR* ext : exts) {
-            _stprintf_s(keyPath, _T("Software\\Classes\\%s\\ShellEx\\%s"), ext, g_szThumbHandlerIid);
-            RegDeleteKey(hRoot, keyPath);
-
-            _stprintf_s(keyPath, _T("Software\\Classes\\SystemFileAssociations\\%s\\ShellEx\\%s"), ext, g_szThumbHandlerIid);
-            RegDeleteKey(hRoot, keyPath);
+            std::wstring k2 = std::wstring(L"Software\\Classes\\SystemFileAssociations\\") + ext + L"\\ShellEx\\" + IID_THUMB;
+            std::wstring b2 = std::wstring(L"SysAssoc_") + (ext + 1);
+            UnregisterShellExWithRestore(hRoot, k2, b2);
         }
 
-        // Delete Approved value
-        HKEY hAppKey = NULL;
-        if (RegOpenKeyEx(hRoot, _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved"), 0, KEY_SET_VALUE, &hAppKey) == ERROR_SUCCESS) {
-            RegDeleteValue(hAppKey, g_szClsid);
-            RegCloseKey(hAppKey);
+        // Delete our backup key if empty or done
+        RegDeleteTreeW(hRoot, BACKUP_BASE);
+
+        // 2. Delete CLSID key
+        std::wstring clsidKey = std::wstring(L"Software\\Classes\\CLSID\\") + CLSID_OUR;
+        RegDeleteTreeW(hRoot, clsidKey.c_str());
+
+        // 3. Delete Approved value
+        HKEY hApp = NULL;
+        if (RegOpenKeyExW(hRoot, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Approved", 0, KEY_SET_VALUE, &hApp) == ERROR_SUCCESS) {
+            RegDeleteValueW(hApp, CLSID_OUR);
+            RegCloseKey(hApp);
         }
     }
 
