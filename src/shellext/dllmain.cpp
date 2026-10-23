@@ -91,11 +91,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID /*lpRese
 }
 
 // ── Exported Functions ────────────────────────────────────────────────────
-STDAPI DllCanUnloadNow(void) {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdll-attribute-on-redeclaration"
+#endif
+
+extern "C" __declspec(dllexport) HRESULT __stdcall DllCanUnloadNow(void) {
     return (PsdThumbnail::g_dllRefCount.load() == 0) ? S_OK : S_FALSE;
 }
 
-STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
+extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
     if (!ppv) return E_POINTER;
     *ppv = nullptr;
 

@@ -52,7 +52,6 @@ echo [1/2] Compiling PsdThumbnailProvider.dll (Unicode)...
     src\core\psd_decoder.cpp ^
     src\shellext\thumbnail_provider.cpp ^
     src\shellext\dllmain.cpp ^
-    src\shellext\psd_thumb.def ^
     !RES_OBJ! ^
     -o bin\PsdThumbnailProvider.dll ^
     -lole32 -loleaut32 -lshlwapi -lwindowscodecs -lgdi32 -luuid -lcrypt32 -static
