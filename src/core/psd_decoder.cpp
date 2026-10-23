@@ -4,6 +4,9 @@
 #ifndef _UNICODE
 #define _UNICODE
 #endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #define WIN32_LEAN_AND_MEAN
 
 #include "psd_decoder.h"

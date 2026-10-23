@@ -48,7 +48,7 @@ if not "%WINDRES%"=="" (
 )
 
 echo [1/2] Compiling PsdThumbnailProvider.dll (Unicode)...
-"%CLANG%" -shared -std=c++20 -O2 -DUNICODE -D_UNICODE ^
+"%CLANG%" -shared -std=c++20 -O2 -DUNICODE -D_UNICODE -DNOMINMAX ^
     src\core\psd_decoder.cpp ^
     src\shellext\thumbnail_provider.cpp ^
     src\shellext\dllmain.cpp ^
@@ -64,7 +64,7 @@ echo      -^> bin\PsdThumbnailProvider.dll created successfully.
 
 echo.
 echo [2/2] Compiling psdthumb-diag.exe (Unicode)...
-"%CLANG%" -std=c++20 -O2 -municode -DUNICODE -D_UNICODE ^
+"%CLANG%" -std=c++20 -O2 -municode -DUNICODE -D_UNICODE -DNOMINMAX ^
     src\core\psd_decoder.cpp ^
     src\diag\main.cpp ^
     -o bin\psdthumb-diag.exe ^
